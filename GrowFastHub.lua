@@ -2,7 +2,7 @@
 local _ = function() return loadstring(game:HttpGet("https://raw.githubusercontent.com/bloodball/-back-ups-for-libs/main/wall%20v3"))() end
 local library = _()
 
--- Services (Obfuscated Names)
+-- Services
 local _Plrs = game:GetService("Players")
 local _RepStor = game:GetService("ReplicatedStorage")
 local _RunSvc = game:GetService("RunService")
@@ -16,12 +16,6 @@ local _LdrStats = _Ply:WaitForChild("leaderstats")
 local _Shkls = _LdrStats:WaitForChild("Sheckles")
 local _Char = _Ply.Character or _Ply.CharacterAdded:Wait()
 
--- Remote Events
-local _PlntRE = _RepStor:WaitForChild("Plant_RE")
-local _HrvstRE = _RepStor:WaitForChild("Harvest_RE")
-local _BuySdRE = _RepStor:WaitForChild("BuySeed_RE")
-local _FeedPlntRE = _RepStor:WaitForChild("FeedPlant_RE")
-
 -- Workspace References
 local _Frm = game.Workspace:WaitForChild("Farm")
 local _SdShp = game.Workspace:WaitForChild("SeedShop")
@@ -29,10 +23,10 @@ local _HngryPlnt = game.Workspace:WaitForChild("HungryPlant")
 
 -- Anti-Ban Config
 local _AntiBan = {
-    RateLimit = 0.5, -- Seconds between actions
-    RandomDelay = {0.1, 0.3}, -- Random delay range
-    FakeLegitChance = 0.2, -- 20% chance to mimic legit action
-    MaxActionsPerSec = 2, -- Max events per second
+    RateLimit = 0.7, -- Increased for safety
+    RandomDelay = {0.15, 0.4}, -- Wider range
+    FakeLegitChance = 0.3, -- 30% chance
+    MaxActionsPerSec = 1, -- Stricter limit
     LastActionTime = tick(),
     ActionCount = 0
 }
@@ -57,14 +51,38 @@ local _W = library:CreateWindow({
 local _F = _W:CreateFolder("Controls")
 local _Dbg = _W:CreateFolder("Debug")
 
+-- Debug Game Structure
+local function _DbgGame()
+    _Dbg:Label("=== ReplicatedStorage Events ===")
+    for _, obj in pairs(_RepStor:GetChildren()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("BindableEvent") then
+            _Dbg:Label("Event: " .. obj.Name)
+        end
+    end
+    _Dbg:Label("=== Farm Plots ===")
+    for _, plt in pairs(_Frm:GetChildren()) do
+        _Dbg:Label("Plot: " .. plt.Name)
+        if plt:FindFirstChildOfClass("ClickDetector") then
+            _Dbg:Label(" - Has ClickDetector")
+        end
+        if plt:FindFirstChildOfClass("ProximityPrompt") then
+            _Dbg:Label(" - Has ProximityPrompt")
+        end
+    end
+    _Dbg:Label("=== Seed Shop ===")
+    for _, sd in pairs(_SdShp:GetChildren()) do
+        _Dbg:Label("Shop Item: " .. sd.Name)
+    end
+end
+task.spawn(_DbgGame)
+
 -- Utility Functions
 local function _GetOwnPlt()
     for _, plt in pairs(_Frm:GetChildren()) do
         local imp = plt:FindFirstChild("Important")
         if imp and imp:FindFirstChild("Data") and imp.Data:FindFirstChild("Owner") then
             if imp.Data.Owner.Value == _Ply.Name then
-                returnIfValid = plt
-                return returnIfValid
+                return plt
             end
         end
     end
@@ -76,8 +94,7 @@ local function _GetEmptyPlt()
     if not pltFldr then return nil end
     for _, plt in pairs(pltFldr:GetChildren()) do
         if plt:FindFirstChild("Occupied") and not plt.Occupied.Value then
-            returnIfValid = plt
-            return returnIfValid
+            return plt
         end
     end
     return nil
@@ -86,8 +103,7 @@ end
 local function _GetSdTool()
     for _, tl in pairs(_Bckpk:GetChildren()) do
         if tl:IsA("Tool") and tl:FindFirstChild("SeedType") then
-            returnIfValid = tl
-            return returnIfValid
+            return tl
         end
     end
     return nil
@@ -96,8 +112,7 @@ end
 local function _GetCrpForWght(wght)
     for _, tl in pairs(_Bckpk:GetChildren()) do
         if tl:IsA("Tool") and tl:FindFirstChild("Weight") and tl.Weight.Value >= wght then
-            returnIfValid = tl
-            return returnIfValid
+            return tl
         end
     end
     return nil
@@ -110,10 +125,8 @@ local function _SafeExec(fn)
     _AntiBan.ActionCount = _AntiBan.ActionCount + 1
     _AntiBan.LastActionTime = tick()
     
-    -- Random Delay
     wait(_AntiBan.RandomDelay[1] + math.random() * (_AntiBan.RandomDelay[2] - _AntiBan.RandomDelay[1]))
     
-    -- Fake Legit Action
     if math.random() < _AntiBan.FakeLegitChance then
         local hrp = _Char:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -121,12 +134,10 @@ local function _SafeExec(fn)
         end
     end
     
-    -- Execute Function
     xpcall(fn, function(err)
         _Dbg:Label("Error: " .. tostring(err))
     end)
     
-    -- Reset Action Count
     spawn(function()
         wait(1)
         _AntiBan.ActionCount = math.max(0, _AntiBan.ActionCount - 1)
@@ -140,7 +151,15 @@ local function _AutoGrw()
     for _, plt in pairs(pltFldr:GetChildren()) do
         if plt:FindFirstChild("Occupied") and plt.Occupied.Value then
             _SafeExec(function()
-                _HrvstRE:FireServer(plt.Position)
+                local prx = plt:FindFirstChildOfClass("ProximityPrompt")
+                local clk = plt:FindFirstChildOfClass("ClickDetector")
+                if prx then
+                    fireproximityprompt(prx, 1, true)
+                elseif clk then
+                    fireclickdetector(clk, 1)
+                else
+                    _Dbg:Label("No interaction for plot: " .. plt.Name)
+                end
             end)
         end
     end
@@ -152,7 +171,15 @@ local function _AutoBuySds()
     for _, sd in pairs(stck:GetChildren()) do
         if sd:IsA("StringValue") and sd:FindFirstChild("Price") and _Shkls.Value >= sd.Price.Value then
             _SafeExec(function()
-                _BuySdRE:FireServer(sd.Name)
+                local buyEvt = _RepStor:FindFirstChild("BuySeed") or _RepStor:FindFirstChild("PurchaseSeed")
+                if buyEvt then
+                    buyEvt:FireServer(sd.Name)
+                else
+                    local prx = _SdShp:FindFirstChildOfClass("ProximityPrompt")
+                    if prx then
+                        fireproximityprompt(prx, 1, true)
+                    end
+                end
             end)
         end
     end
@@ -163,7 +190,19 @@ local function _AutoPlnt()
     local sdTl = _GetSdTool()
     if plt and sdTl then
         _SafeExec(function()
-            _PlntRE:FireServer(plt.Position, sdTl.SeedType.Value)
+            local prx = plt:FindFirstChildOfClass("ProximityPrompt")
+            local clk = plt:FindFirstChildOfClass("ClickDetector")
+            if prx then
+                sdTl.Parent = _Char
+                wait(0.1)
+                fireproximityprompt(prx, 1, true)
+            elseif clk then
+                sdTl.Parent = _Char
+                wait(0.1)
+                fireclickdetector(clk, 1)
+            else
+                _Dbg:Label("No interaction for planting on: " .. plt.Name)
+            end
         end)
     end
 end
@@ -193,10 +232,11 @@ local function _AutoFdPlnt()
             _SafeExec(function()
                 crp.Parent = _Char
                 wait(0.1)
-                _FeedPlntRE:FireServer(crp.Name, reqWght.Value)
                 fireproximityprompt(prmpt, 1, true)
             end)
         end
+    else
+        _Dbg:Label("No prompt/weight for Hungry Plant")
     end
 end
 
@@ -204,7 +244,17 @@ local function _AutoSll()
     for _, tl in pairs(_Bckpk:GetChildren()) do
         if tl:IsA("Tool") and tl:FindFirstChild("Item_String") then
             _SafeExec(function()
-                _HrvstRE:FireServer(tl.Name)
+                local sellEvt = _RepStor:FindFirstChild("SellCrop") or _RepStor:FindFirstChild("Sell")
+                if sellEvt then
+                    sellEvt:FireServer(tl.Name)
+                else
+                    local sellPrx = _SdShp:FindFirstChildOfClass("ProximityPrompt")
+                    if sellPrx then
+                        tl.Parent = _Char
+                        wait(0.1)
+                        fireproximityprompt(sellPrx, 1, true)
+                    end
+                end
             end)
         end
     end
@@ -272,7 +322,7 @@ _F:Button({
 
 _Dbg:Label("Status: Running")
 _Dbg:Label("Sheckles: " .. _Shkls.Value)
-ShklsChangedConnection = _Shkls.Changed:Connect(function(val)
+local _ShklsCn = _Shkls.Changed:Connect(function(val)
     _Dbg:Label("Sheckles: " .. val)
 end)
 
@@ -292,6 +342,7 @@ local function _ChkAntiCheat()
     if hum and (hum.WalkSpeed > 50 or hum.JumpPower > 100) then
         _Dbg:Label("Warning: Possible anti-cheat detection!")
         _Cn:Disconnect()
+        _ShklsCn:Disconnect()
         _W:Destroy()
     end
 end
@@ -305,12 +356,12 @@ end)
 -- Cleanup
 game:BindToClose(function()
     _Cn:Disconnect()
-    ShklsChangedConnection:Disconnect()
+    _ShklsCn:Disconnect()
 end)
 
 -- Startup
 xpcall(function()
-    _Dbg:Label("Elite Script Loaded!")
+    _Dbg:Label("Fixed Script Loaded!")
 end, function(err)
     _Dbg:Label("Error: " .. tostring(err))
 end)
